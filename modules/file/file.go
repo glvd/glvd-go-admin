@@ -93,6 +93,7 @@ func SaveMultipartFile(fh *multipart.FileHeader, path string) (err error) {
 	}()
 
 	if ff, ok := f.(*os.File); ok {
+		err = f.Close()
 		return os.Rename(ff.Name(), path)
 	}
 
