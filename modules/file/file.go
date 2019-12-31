@@ -5,12 +5,14 @@
 package file
 
 import (
+	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/glvd/go-admin/plugins/admin/modules"
 	"io"
 	"mime/multipart"
 	"os"
 	"path"
+	"path/filepath"
 	"sync"
 )
 
@@ -98,7 +100,8 @@ func SaveMultipartFile(fh *multipart.FileHeader, path string) (err error) {
 	if ff, ok := f.(*os.File); ok {
 		err = f.Close()
 		closed = true
-		return os.Rename(ff.Name(), path)
+		dir, name := filepath.Split(path)
+		return moveFile(ff.Name(), dir, name, true)
 	}
 
 	ff, err := os.Create(path)
@@ -126,4 +129,49 @@ var copyBufPool = sync.Pool{
 	New: func() interface{} {
 		return make([]byte, 4096)
 	},
+}
+
+func moveFile(sourcePath, toPath, destFile string, remove bool) error {
+	inputFile, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("couldn't open source file: %w", err)
+	}
+	dest := filepath.Join(toPath, destFile)
+	info, err := os.Stat(dest)
+	if !os.IsNotExist(err) {
+		if remove {
+			sourceInfo, err := inputFile.Stat()
+			if err != nil {
+				return err
+			}
+			if info.Size() == sourceInfo.Size() {
+				return os.Remove(sourcePath)
+			}
+		}
+		return nil
+	}
+
+	err = os.Rename(sourcePath, dest)
+	if err == nil {
+		return nil
+	} else {
+		//ignore error
+	}
+	outputFile, err := os.Create(dest)
+	if err != nil {
+		inputFile.Close()
+		return fmt.Errorf("couldn't open dest file: %s", err)
+	}
+	defer outputFile.Close()
+	_, err = io.Copy(outputFile, inputFile)
+	inputFile.Close()
+	if err != nil {
+		return fmt.Errorf("writing to output file failed: %s", err)
+	}
+	// The copy was successful, so now delete the original file
+	err = os.Remove(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed removing original file: %s", err)
+	}
+	return nil
 }
