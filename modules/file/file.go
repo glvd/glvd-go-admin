@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path"
+	"strconv"
 	"sync"
 
 	"github.com/glvd/go-admin/plugins/admin/modules"
@@ -63,7 +64,6 @@ func Upload(c UploadFun, form *multipart.Form) error {
 
 	for k := range form.File {
 		fileObj := form.File[k][0]
-
 		suffix = path.Ext(fileObj.Filename)
 		filename = modules.Uuid() + suffix
 
@@ -72,7 +72,8 @@ func Upload(c UploadFun, form *multipart.Form) error {
 		if err != nil {
 			return err
 		}
-
+		form.Value["_filename"+k] = []string{fileObj.Filename}
+		form.Value["_filesize"+k] = []string{strconv.FormatInt(fileObj.Size, 32)}
 		form.Value[k] = []string{pathStr}
 	}
 
