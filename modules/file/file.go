@@ -83,17 +83,21 @@ func Upload(c UploadFun, form *multipart.Form) error {
 func SaveMultipartFile(fh *multipart.FileHeader, path string) (err error) {
 	var f multipart.File
 	f, err = fh.Open()
+	closed := false
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if err2 := f.Close(); err2 != nil {
-			err = err2
+		if !closed {
+			if err2 := f.Close(); err2 != nil {
+				err = err2
+			}
 		}
 	}()
 
 	if ff, ok := f.(*os.File); ok {
 		err = f.Close()
+		closed = true
 		return os.Rename(ff.Name(), path)
 	}
 
