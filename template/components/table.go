@@ -16,6 +16,7 @@ type TableAttribute struct {
 	EditUrl    string
 	MinWidth   int
 	DeleteUrl  string
+	DetailUrl  string
 	UpdateUrl  string
 	IsTab      bool
 	ExportUrl  string
@@ -54,6 +55,7 @@ type DataTableAttribute struct {
 	EditUrl           string
 	NewUrl            string
 	UpdateUrl         string
+	DetailUrl         string
 	DeleteUrl         string
 	PrimaryKey        string
 	IsTab             bool
@@ -125,6 +127,11 @@ func (compo *DataTableAttribute) SetHideRowSelector(value bool) types.DataTableA
 
 func (compo *DataTableAttribute) SetUpdateUrl(value string) types.DataTableAttribute {
 	compo.UpdateUrl = value
+	return compo
+}
+
+func (compo *DataTableAttribute) SetDetailUrl(value string) types.DataTableAttribute {
+	compo.DetailUrl = value
 	return compo
 }
 

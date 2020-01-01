@@ -28,6 +28,24 @@ func (g GeneratorList) Add(key string, gen Generator) {
 	g[key] = gen
 }
 
+func (g GeneratorList) Combine(gg GeneratorList) {
+	for key, gen := range gg {
+		if _, ok := g[key]; !ok {
+			g[key] = gen
+		}
+	}
+}
+
+func (g GeneratorList) CombineAll(ggg []GeneratorList) {
+	for _, gg := range ggg {
+		for key, gen := range gg {
+			if _, ok := g[key]; !ok {
+				g[key] = gen
+			}
+		}
+	}
+}
+
 var (
 	generators = make(GeneratorList)
 	tableList  = map[string]Table{}
@@ -71,6 +89,7 @@ type Table interface {
 	UpdateDataFromDatabase(dataList form.Values) error
 	InsertDataFromDatabase(dataList form.Values) error
 	DeleteDataFromDatabase(id string) error
+	Copy() Table
 }
 
 type PrimaryKey struct {
@@ -248,6 +267,24 @@ func NewDefaultTable(cfg Config) Table {
 	}
 }
 
+func (tb DefaultTable) Copy() Table {
+	return DefaultTable{
+		form: types.NewFormPanel().SetTable(tb.form.Table).
+			SetDescription(tb.form.Description).
+			SetTitle(tb.form.Title),
+		info: types.NewInfoPanel().SetTable(tb.info.Table).
+			SetDescription(tb.info.Description).
+			SetTitle(tb.info.Title),
+		connectionDriver: tb.connectionDriver,
+		connection:       tb.connection,
+		canAdd:           tb.canAdd,
+		editable:         tb.editable,
+		deletable:        tb.deletable,
+		exportable:       tb.exportable,
+		primaryKey:       tb.primaryKey,
+	}
+}
+
 func (tb DefaultTable) GetInfo() *types.InfoPanel {
 	return tb.info
 }
@@ -353,7 +390,7 @@ func (tb DefaultTable) getAllDataFromDatabase(path string, params parameter.Para
 
 	columnsModel, _ := tb.sql().Table(tb.info.Table).ShowColumns()
 
-	columns := getColumns(columnsModel, tb.connectionDriver)
+	columns, _ := tb.getColumns(columnsModel)
 
 	var (
 		fields     string
@@ -448,7 +485,7 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 
 	columnsModel, _ := tb.sql().Table(tb.info.Table).ShowColumns()
 
-	columns := getColumns(columnsModel, tb.connectionDriver)
+	columns, _ := tb.getColumns(columnsModel)
 
 	var (
 		sortable   string
@@ -502,7 +539,7 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 				HelpMsg:   field.FilterHelpMsg,
 				FormType:  field.FilterType,
 				Editable:  true,
-				Value:     value,
+				Value:     template.HTML(value),
 				Value2:    value2,
 				Options:   field.FilterOptions.SetSelected(params.GetFieldValue(field.Field), field.FilterType.SelectedLabel()),
 				OptionExt: field.FilterOptionExt,
@@ -514,7 +551,7 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 					Field:    field.Field + "__operator__",
 					Head:     field.Head,
 					TypeName: field.TypeName,
-					Value:    field.FilterOperator.Value(),
+					Value:    template.HTML(field.FilterOperator.Value()),
 					FormType: field.FilterType,
 					Hide:     true,
 				})
@@ -678,7 +715,7 @@ func (tb DefaultTable) getDataFromDatabase(path string, params parameter.Paramet
 		InfoList: infoList,
 		Paginator: paginator.Get(path, params, size, tb.info.GetPageSizeList()).
 			SetExtraInfo(template.HTML(fmt.Sprintf("<b>" + language.Get("query time") + ": </b>" +
-				fmt.Sprintf("%fs", endTime.Sub(beginTime).Seconds())))),
+				fmt.Sprintf("%.3fms", endTime.Sub(beginTime).Seconds()*1000)))),
 		Title:       tb.info.Title,
 		FormData:    filterForm,
 		Description: tb.info.Description,
@@ -696,7 +733,7 @@ func (tb DefaultTable) GetDataFromDatabaseWithId(id string) ([]types.FormField, 
 		return nil, nil, nil, "", "", err
 	}
 
-	columns := getColumns(columnsModel, tb.connectionDriver)
+	columns, _ := tb.getColumns(columnsModel)
 
 	formList := tb.form.FieldList.Copy()
 
@@ -840,8 +877,6 @@ func (tb DefaultTable) InsertDataFromDatabase(dataList form.Values) error {
 
 	dataList.Add(tb.GetPrimaryKey().Name, strconv.Itoa(int(id)))
 
-	// NOTE: Database Transaction may be considered here.
-
 	if tb.form.PostHook != nil {
 		go func() {
 
@@ -868,15 +903,21 @@ func (tb DefaultTable) getInjectValueFromFormValue(dataList form.Values) dialect
 
 	columnsModel, _ := tb.sql().Table(tb.form.Table).ShowColumns()
 
-	columns := getColumns(columnsModel, tb.connectionDriver)
+	columns, auto := tb.getColumns(columnsModel)
 	var (
 		fun          types.PostFieldFilterFn
-		exceptString = []string{tb.primaryKey.Name, "_previous_", "_method", "_t"}
+		exceptString = make([]string, 0)
 	)
+
+	if auto {
+		exceptString = []string{tb.primaryKey.Name, "_previous_", "_method", "_t"}
+	} else {
+		exceptString = []string{"_previous_", "_method", "_t"}
+	}
 
 	if !dataList.IsSingleUpdatePost() {
 		for _, field := range tb.form.FieldList {
-			if field.FormType.IsSelect() {
+			if field.FormType.IsMultiSelect() {
 				if _, ok := dataList[field.Field+"[]"]; !ok {
 					dataList[field.Field+"[]"] = []string{""}
 				}
@@ -1045,24 +1086,44 @@ func filterFiled(filed, delimiter string) string {
 
 type Columns []string
 
-func getColumns(columnsModel []map[string]interface{}, driver string) Columns {
+func (tb DefaultTable) getColumns(columnsModel []map[string]interface{}) (Columns, bool) {
 	columns := make(Columns, len(columnsModel))
-	switch driver {
+	switch tb.connectionDriver {
 	case "postgresql":
+		auto := false
 		for key, model := range columnsModel {
 			columns[key] = model["column_name"].(string)
+			if columns[key] == tb.primaryKey.Name {
+				if v, ok := model["column_default"].(string); ok {
+					if strings.Contains(v, "nextval") {
+						auto = true
+					}
+				}
+			}
 		}
-		return columns
+		return columns, auto
 	case "mysql":
+		auto := false
 		for key, model := range columnsModel {
 			columns[key] = model["Field"].(string)
+			if columns[key] == tb.primaryKey.Name {
+				if v, ok := model["Extra"].(string); ok {
+					if v == "auto_increment" {
+						auto = true
+					}
+				}
+			}
 		}
-		return columns
+		return columns, auto
 	case "sqlite":
 		for key, model := range columnsModel {
 			columns[key] = string(model["name"].(string))
 		}
-		return columns
+
+		num, _ := tb.sql().Table("sqlite_sequence").
+			Where("name", "=", tb.GetForm().Table).Count()
+
+		return columns, num > 0
 	default:
 		panic("wrong driver")
 	}
