@@ -5,14 +5,12 @@
 package file
 
 import (
-	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/glvd/go-admin/plugins/admin/modules"
 	"io"
 	"mime/multipart"
 	"os"
 	"path"
-	"path/filepath"
 	"sync"
 )
 
