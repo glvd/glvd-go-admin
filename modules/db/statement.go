@@ -7,6 +7,7 @@ package db
 import (
 	dbsql "database/sql"
 	"errors"
+	"fmt"
 	"github.com/glvd/go-admin/modules/db/dialect"
 	"github.com/glvd/go-admin/modules/logger"
 	"regexp"
@@ -36,6 +37,9 @@ var SQLPool = sync.Pool{
 				Leftjoins:  make([]dialect.Join, 0),
 				UpdateRaws: make([]dialect.RawUpdate, 0),
 				WhereRaws:  "",
+				Order:      "",
+				Group:      "",
+				Limit:      "",
 			},
 			diver:   nil,
 			dialect: nil,
@@ -132,6 +136,20 @@ func (sql *SQL) OrderBy(fields ...string) *SQL {
 			return sql
 		}
 		sql.Order += " " + sql.wrap(fields[i]) + " and "
+	}
+	return sql
+}
+
+func (sql *SQL) GroupBy(fields ...string) *SQL {
+	if len(fields) == 0 {
+		panic("wrong group by field")
+	}
+	for i := 0; i < len(fields); i++ {
+		if i == len(fields)-2 {
+			sql.Group += " " + sql.wrap(fields[i]) + " " + fields[i+1]
+			return sql
+		}
+		sql.Group += " " + sql.wrap(fields[i]) + " and "
 	}
 	return sql
 }
@@ -561,6 +579,9 @@ func (sql *SQL) Insert(values dialect.H) (int64, error) {
 }
 
 func (sql *SQL) wrap(field string) string {
+	if sql.diver.Name() == "mssql" {
+		return fmt.Sprintf(`[%s]`, field)
+	}
 	return sql.diver.GetDelimiter() + field + sql.diver.GetDelimiter()
 }
 
