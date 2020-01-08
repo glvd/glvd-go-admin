@@ -146,7 +146,8 @@ func showTable(ctx *context.Context, panel table.Table, path string, params para
 				SetMethod("get").
 				SetLayout(panel.GetInfo().FilterFormLayout).
 				SetUrl(infoUrl).
-				SetOperationFooter(filterFormFooter(infoUrl)).GetContent())
+				SetOperationFooter(filterFormFooter(infoUrl)).
+				GetContent())
 	}
 
 	box := boxModel.GetContent()
